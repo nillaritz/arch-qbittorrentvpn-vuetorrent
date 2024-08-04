@@ -22,11 +22,8 @@ jobs:
         run: |
           if [ -f .github/versions.env ]; then
             source .github/versions.env
-            echo "::set-output name=prev_vuetorrent_release::${VUETORRENT_RELEASE}"
-            echo "::set-output name=prev_base_image_digest::${BASE_IMAGE_DIGEST}"
-          else
-            echo "::set-output name=prev_vuetorrent_release::"
-            echo "::set-output name=prev_base_image_digest::"
+            echo "prev_vuetorrent_release=${VUETORRENT_RELEASE}" >> $GITHUB_OUTPUT
+            echo "prev_base_image_digest=${BASE_IMAGE_DIGEST}" >> $GITHUB_OUTPUT
           fi
 
       - name: Set up Docker Buildx
@@ -50,30 +47,29 @@ jobs:
         id: get_latest_vuetorrent
         run: |
           latest_release=$(curl -Ls https://api.github.com/repos/WDaan/VueTorrent/releases/latest | jq -r .tag_name)
-          echo "::set-output name=release::$latest_release"
+          echo "release=$latest_release" >> $GITHUB_OUTPUT
 
       - name: Check if base image has been updated
         id: pull_base_image
         run: |
           base_image_digest=$(docker pull binhex/arch-qbittorrentvpn:latest | grep Digest | awk '{print $2}')
-          echo "::set-output name=base_image_digest::$base_image_digest"
+          echo "base_image_digest=$base_image_digest" >> $GITHUB_OUTPUT
 
       - name: Compare versions and digests
         id: compare
         run: |
           if [[ "${{ steps.get_latest_vuetorrent.outputs.release }}" != "${{ steps.prev_versions.outputs.prev_vuetorrent_release }}" || "${{ steps.pull_base_image.outputs.base_image_digest }}" != "${{ steps.prev_versions.outputs.prev_base_image_digest }}" ]]; then
             echo "Changes detected, proceeding with build."
-            echo "::set-output name=trigger_build::true"
+            echo "trigger_build=true" >> $GITHUB_OUTPUT
           else
             echo "No changes detected, skipping build."
-            echo "::set-output name=trigger_build::false"
           fi
 
       - name: Set version tag
         id: version
         run: |
           VERSION_TAG=$(date +%Y%m%d%H%M%S)-${{ github.sha }}
-          echo "::set-output name=tag::$VERSION_TAG"
+          echo "tag=$VERSION_TAG" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         if: steps.compare.outputs.trigger_build == 'true'
