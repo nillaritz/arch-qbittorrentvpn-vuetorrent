@@ -1,0 +1,105 @@
+name: Build and Push Docker Image
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Check every day at midnight
+  workflow_dispatch:    # Manually trigger the workflow
+  push:
+    branches:
+      - main            # Trigger on push to main branch
+    paths:
+      - '.github/versions.env' # Track changes to a version file
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load previous versions
+        id: prev_versions
+        run: |
+          if [ -f .github/versions.env ]; then
+            source .github/versions.env
+            echo "::set-output name=prev_vuetorrent_release::${VUETORRENT_RELEASE}"
+            echo "::set-output name=prev_base_image_digest::${BASE_IMAGE_DIGEST}"
+          else
+            echo "::set-output name=prev_vuetorrent_release::"
+            echo "::set-output name=prev_base_image_digest::"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.CR_PAT }}
+
+      - name: Get latest VueTorrent release
+        id: get_latest_vuetorrent
+        run: |
+          latest_release=$(curl -Ls https://api.github.com/repos/WDaan/VueTorrent/releases/latest | jq -r .tag_name)
+          echo "::set-output name=release::$latest_release"
+
+      - name: Check if base image has been updated
+        id: pull_base_image
+        run: |
+          base_image_digest=$(docker pull binhex/arch-qbittorrentvpn:latest | grep Digest | awk '{print $2}')
+          echo "::set-output name=base_image_digest::$base_image_digest"
+
+      - name: Compare versions and digests
+        id: compare
+        run: |
+          if [[ "${{ steps.get_latest_vuetorrent.outputs.release }}" != "${{ steps.prev_versions.outputs.prev_vuetorrent_release }}" || "${{ steps.pull_base_image.outputs.base_image_digest }}" != "${{ steps.prev_versions.outputs.prev_base_image_digest }}" ]]; then
+            echo "Changes detected, proceeding with build."
+            echo "::set-output name=trigger_build::true"
+          else
+            echo "No changes detected, skipping build."
+            echo "::set-output name=trigger_build::false"
+          fi
+
+      - name: Set version tag
+        id: version
+        run: |
+          VERSION_TAG=$(date +%Y%m%d%H%M%S)-${{ github.sha }}
+          echo "::set-output name=tag::$VERSION_TAG"
+
+      - name: Build and push Docker image
+        if: steps.compare.outputs.trigger_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ github.repository }}:latest
+            ${{ github.repository }}:${{ steps.version.outputs.tag }}
+          build-args: |
+            VUETORRENT_RELEASE=${{ steps.get_latest_vuetorrent.outputs.release }}
+            BASE_IMAGE_DIGEST=${{ steps.pull_base_image.outputs.base_image_digest }}
+
+      - name: Update versions file
+        if: steps.compare.outputs.trigger_build == 'true'
+        run: |
+          echo "VUETORRENT_RELEASE=${{ steps.get_latest_vuetorrent.outputs.release }}" > .github/versions.env
+          echo "BASE_IMAGE_DIGEST=${{ steps.pull_base_image.outputs.base_image_digest }}" >> .github/versions.env
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .github/versions.env
+          git commit -m "Update tracked versions"
+
+      - name: Push changes
+        if: steps.compare.outputs.trigger_build == 'true'
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
