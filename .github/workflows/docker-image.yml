@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 on:
   schedule:
-    - cron: '0 0,6,12,18 * * *' # Check every 6 hours
+    - cron: '0 0/2 * * *' # Check every 2 hours
   workflow_dispatch:    # Manually trigger the workflow
   push:
     branches:
