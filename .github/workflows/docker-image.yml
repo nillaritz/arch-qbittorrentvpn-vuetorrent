@@ -53,7 +53,7 @@ jobs:
         id: pull_base_image
         run: |
           base_image_digest=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "https://ghcr.io/v2/binhex/arch-qbittorrentvpn/manifests/latest" | jq -r '.config.digest')
-          echo "base_image_digest=$base_image_digest" >> $GITHUB_ENV
+          echo "base_image_digest=$base_image_digest" >> $GITHUB_OUTPUT
 
       # - name: Check if base image has been updated
       #   id: pull_base_image
